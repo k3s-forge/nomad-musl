@@ -24,8 +24,7 @@ jobs:
         run: |
           apk add --no-cache \
             bash curl git jq make gcc musl-dev \
-            linux-headers libseccomp-dev libseccomp-static \
-            nodejs npm zip
+            linux-headers libseccomp-dev libseccomp-static zip
 
       - name: Install Go
         run: |
@@ -33,9 +32,6 @@ jobs:
           curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
             | tar -C /usr/local -xz
           echo "/usr/local/go/bin" >> $GITHUB_PATH
-
-      - name: Install pnpm
-        run: npm install -g pnpm@9
 
       - name: Install GitHub CLI
         run: |
@@ -68,23 +64,13 @@ jobs:
           git clone --depth 1 --branch "${{ steps.version.outputs.tag }}" \
             https://github.com/hashicorp/nomad.git /tmp/nomad
 
-      - name: Install Go codegen tools
-        if: steps.version.outputs.skip == 'false'
-        run: |
-          go install github.com/ugorji/go/codec/codecgen@latest
-          go install golang.org/x/tools/cmd/stringer@latest
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-      - name: Prerelease (UI + bindata)
+      - name: Build Nomad (musl, with UI from release tag)
         if: steps.version.outputs.skip == 'false'
         run: |
           cd /tmp/nomad
-          make prerelease
-
-      - name: Build (musl, with UI, static where possible)
-        if: steps.version.outputs.skip == 'false'
-        run: |
-          cd /tmp/nomad
+          # Release tags ship with pre-generated UI bindata.
+          # No need to run `make prerelease` — it would require
+          # Node.js/pnpm/ember toolchain just to rebuild what's already there.
           make pkg/linux_amd64/nomad
 
       - name: Package
@@ -101,6 +87,6 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}-musl" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Nomad ${{ steps.version.outputs.tag }} (musl / Alpine)" \
-            --notes "Unofficial musl build for Alpine Linux, with Nomad UI. Built from upstream hashicorp/nomad." \
+            --notes "Unofficial musl build for Alpine Linux, with Nomad UI (pre-built from release tag). Built from upstream hashicorp/nomad." \
             /tmp/nomad/pkg/linux_amd64/nomad \
             /tmp/nomad/pkg/linux_amd64/nomad.zip
