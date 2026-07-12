@@ -1,0 +1,82 @@
+name: Build Nomad for Alpine (musl)
+
+on:
+  schedule:
+    - cron: '0 */12 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Nomad version tag (e.g. v2.0.4). Leave empty for latest.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:3.21
+
+    steps:
+      - name: Install system deps
+        run: |
+          apk add --no-cache \
+            bash curl git jq make gcc musl-dev \
+            linux-headers libseccomp-dev libseccomp-static
+
+      - name: Install Go
+        run: |
+          GO_VERSION=1.26.3
+          curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+            | tar -C /usr/local -xz
+          echo "/usr/local/go/bin" >> $GITHUB_PATH
+
+      - name: Install GitHub CLI
+        run: |
+          GH_VERSION=2.68.1
+          curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+            | tar -C /usr/local -xz --strip-components=1 "gh_${GH_VERSION}_linux_amd64/bin/gh"
+
+      - name: Resolve version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            TAG="${{ inputs.version }}"
+          else
+            TAG=$(curl -sSf https://api.github.com/repos/hashicorp/nomad/releases/latest \
+              | jq -r .tag_name)
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+          if gh release view "${TAG}-musl" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Clone Nomad
+        if: steps.version.outputs.skip == 'false'
+        run: |
+          git clone --depth 1 --branch "${{ steps.version.outputs.tag }}" \
+            https://github.com/hashicorp/nomad.git /tmp/nomad
+
+      - name: Build (musl, no UI)
+        if: steps.version.outputs.skip == 'false'
+        run: |
+          cd /tmp/nomad
+          NOMAD_NO_UI=1 make pkg/linux_amd64/nomad
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}-musl" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Nomad ${{ steps.version.outputs.tag }} (musl / Alpine)" \
+            --notes "Unofficial musl build for Alpine Linux. Built from upstream hashicorp/nomad." \
+            /tmp/nomad/pkg/linux_amd64/nomad
