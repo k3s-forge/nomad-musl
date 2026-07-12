@@ -24,7 +24,7 @@ jobs:
         run: |
           apk add --no-cache \
             bash curl git jq make gcc musl-dev \
-            linux-headers libseccomp-dev libseccomp-static zip
+            linux-headers libseccomp-dev libseccomp-static
 
       - name: Install Go
         run: |
@@ -73,12 +73,6 @@ jobs:
           # Node.js/pnpm/ember toolchain just to rebuild what's already there.
           make pkg/linux_amd64/nomad
 
-      - name: Package
-        if: steps.version.outputs.skip == 'false'
-        run: |
-          cd /tmp/nomad/pkg/linux_amd64
-          zip nomad.zip nomad
-
       - name: Create GitHub Release
         if: steps.version.outputs.skip == 'false'
         env:
@@ -87,6 +81,5 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}-musl" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Nomad ${{ steps.version.outputs.tag }} (musl / Alpine)" \
-            --notes "Unofficial musl build for Alpine Linux, with Nomad UI (pre-built from release tag). Built from upstream hashicorp/nomad." \
-            /tmp/nomad/pkg/linux_amd64/nomad \
-            /tmp/nomad/pkg/linux_amd64/nomad.zip
+            --notes "Unofficial musl build for Alpine Linux, with Nomad UI. Built from upstream hashicorp/nomad." \
+            /tmp/nomad/pkg/linux_amd64/nomad
