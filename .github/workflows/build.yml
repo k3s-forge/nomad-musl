@@ -1,4 +1,4 @@
-name: Build Nomad for Alpine (musl)
+name: Build Nomad (musl, with UI)
 
 "on":
   schedule:
@@ -24,7 +24,8 @@ jobs:
         run: |
           apk add --no-cache \
             bash curl git jq make gcc musl-dev \
-            linux-headers libseccomp-dev libseccomp-static
+            linux-headers libseccomp-dev libseccomp-static \
+            nodejs npm zip
 
       - name: Install Go
         run: |
@@ -32,6 +33,9 @@ jobs:
           curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
             | tar -C /usr/local -xz
           echo "/usr/local/go/bin" >> $GITHUB_PATH
+
+      - name: Install pnpm
+        run: npm install -g pnpm@9
 
       - name: Install GitHub CLI
         run: |
@@ -64,11 +68,23 @@ jobs:
           git clone --depth 1 --branch "${{ steps.version.outputs.tag }}" \
             https://github.com/hashicorp/nomad.git /tmp/nomad
 
-      - name: Build (musl, no UI)
+      - name: Prerelease (UI + bindata)
         if: steps.version.outputs.skip == 'false'
         run: |
           cd /tmp/nomad
-          NOMAD_NO_UI=1 make pkg/linux_amd64/nomad
+          make prerelease
+
+      - name: Build (musl, with UI, static where possible)
+        if: steps.version.outputs.skip == 'false'
+        run: |
+          cd /tmp/nomad
+          make pkg/linux_amd64/nomad
+
+      - name: Package
+        if: steps.version.outputs.skip == 'false'
+        run: |
+          cd /tmp/nomad/pkg/linux_amd64
+          zip nomad.zip nomad
 
       - name: Create GitHub Release
         if: steps.version.outputs.skip == 'false'
@@ -78,5 +94,6 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}-musl" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Nomad ${{ steps.version.outputs.tag }} (musl / Alpine)" \
-            --notes "Unofficial musl build for Alpine Linux. Built from upstream hashicorp/nomad." \
-            /tmp/nomad/pkg/linux_amd64/nomad
+            --notes "Unofficial musl build for Alpine Linux, with Nomad UI. Built from upstream hashicorp/nomad." \
+            /tmp/nomad/pkg/linux_amd64/nomad \
+            /tmp/nomad/pkg/linux_amd64/nomad.zip
